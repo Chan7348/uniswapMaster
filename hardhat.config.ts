@@ -47,6 +47,10 @@ const config: HardhatUserConfig = {
     base: {
       url: "https://base-mainnet.g.alchemy.com/v2/TGwFWGfUH96rmhISEJYNY1o1kTvqYasp" || "",
       accounts: [vars.get("TEST1_KEY"), vars.get("TEST2_KEY")],
+    },
+    zksync_sepolia: {
+      url: "https://zksync-sepolia.core.chainstack.com/f227e59c311b3d5d34e454230af63bb4" || "",
+      accounts: [vars.get("TEST1_KEY"), vars.get("TEST2_KEY")],
     }
   },
   sourcify: {

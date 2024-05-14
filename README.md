@@ -1,19 +1,27 @@
 In development~
 
-# Uniswap V2和V3的讲解 by Dropnear
+# Uniswap V2和V3的笔记 by Dropnear
 
 ## V2
 
-``` solidity
-contract MyContract {
-    uint public myNumber;
+### 逻辑部分：
 
-    function setMyNumber(uint _myNumber) public {
-        myNumber = _myNumber;
-    }
+#### 1. 支持ERC20间的交易对(支持非标准ERC20代币)
 
-    function getMyNumber() public view returns (uint) {
-        return myNumber;
-    }
-}
-```
+![Uniswp V2 模型](http://cdn-img.panewslab.com/oldserver/image/20200901/20090109051336332560.jpeg)
+基本公式为：x * y = k
+代币的价格会且仅会在用户交易之后产生变化。所以交易者的行为（包括普通的兑换行为以及套利交易）会帮助模型自动逼近市价
+
+Uniswap V1使用ETH作为过渡货币，每个交易对都包含ETH。这使得路由更简单（ABC和XYZ之间的每笔交易都通过ETH/ABC交易对和ETH/XYZ交易对进行），并且减少了流动性的分散, 但是增加了ETH风险敞口和无常损失。
+
+Uniswap V2中，任意ERC20之间的交易对数量的激增可能会使寻找交易特定货币对的最佳路径变得更加困难，但是路由可以在更高的层面上处理（在链下处理或通过链上路由器或聚合器）
+
+LP在帮助模型作市的过程中会有以下影响：
+    1.增加池子深度
+    2.降低价格波动（虽然并不会直接影响价格，但是增加流动性可以减少因大单交易引起的价格剧烈波动）
+    3.降低交易滑点
+
+#### 2. 构建价格预言机
+
+#### 3. 支持闪电贷
+#### 4. 协议费用开关

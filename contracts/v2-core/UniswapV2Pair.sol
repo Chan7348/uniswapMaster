@@ -63,6 +63,7 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     }
 
     // called once by the factory at time of deployment
+    /// @dev 为什么要单拎出来一个initalize呢，因为CREATE2方式部署合约，构造器是不能含有参数的
     function initialize(address _token0, address _token1) external {
         require(msg.sender == factory, 'UniswapV2: FORBIDDEN'); // sufficient check
         token0 = _token0;

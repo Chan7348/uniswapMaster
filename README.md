@@ -39,8 +39,8 @@ function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data)
 ```
 
 在讲解这个函数之前，我们要认识一下几个变量：
-- **balance0/balance1:** 在此合约中token0/token1的余额
-- **reserve0/reserve1:** 此合约池子中token0/token1的数量
+- **balance0/balance1:** 合约中token0/token1的余额
+- **reserve0/reserve1:** 池子中用于做市的token0/token1的数量
 - **amount0In/amount1In:** 此合约新获得的token0/token1的数量
 - **amount0Out/amount1Out:** 用户想要通过函数得到的token0/token1的数量
 

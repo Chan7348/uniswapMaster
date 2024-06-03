@@ -80,50 +80,96 @@ function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data)
 
 
 ## V3
-问题：maxLiquidityPerTick, 防止总流动性溢出uint128，为什么需要这个？
 
-创建新池子的过程：
-    首先调用NonfungiblePositionManager继承自PoolInitializer的createAndInitializePoolIfNecessary()函数，这个函数会：
-       1. 首先调用getPool()计算池子的地址
-       2. 查看pool合约是否已经被创建，如果没有则
-          1. 调用factory的createPool()，该函数会根据fee设置合适的tickSpacing，并把pool的相关信息存入factory中
-          2. 在createPool()中调用deploy(), new一个新的pool合约，并把合约信息存在factory中
-          3. 调用新创建的pool合约，调用initialize(sqrtPriceX96),对池子进行初始化，设置初始价格和对应的tick
-       3. 如果已经创建，且池子没有价格，调用池子initialize()进行价格的初始化
+## 创建新池子的过程
 
-mint一个新的NFTposition：
-    确认池子已初始化 -> 计算mint所需流动性 -> 调用pool的mint函数 -> 利用liquidity对position进行更新 -> 调用回调函数实现token的转移 -> 检测token的转移并触发事件
+### 调用 `createAndInitializePoolIfNecessary()`
 
-    _modifyPosition():
-        _updatePosition() 用于 修改position -> 根据加流动性的三种情况，包含现价/在现价上方/在现价下方 计算amount -> 返回更新后的position和需要的token数量
+1. **调用 `getPool()`**：
+   - 计算池子的地址。
 
-    _updatePosition():
-        更新 lower tick 和 upper tick，并查看是否需要对tick进行翻转 -> 更新position的数据 -> 如果是减少流动性则清除对应的tick数据
+2. **查看池合约是否已经被创建**：
+   - 如果没有：
+     1. 调用 factory 的 `createPool()`：
+        - 根据 fee 设置合适的 `tickSpacing`。
+        - 将池的相关信息存入 factory 中。
+     2. 在 `createPool()` 中调用 `deploy()`：
+        - 创建一个新的池合约，并将合约信息存入 factory 中。
+     3. 调用新创建的池合约的 `initialize(sqrtPriceX96)`：
+        - 对池子进行初始化，设置初始价格和对应的 tick。
 
-swap:
-    外部Router选择exactInput或者exactOutput模式并设置限价,交易方向和多重池子路径 ->  swap() 进入循环 (token消耗完/到达限价即停止) {
-        每跨越一个tick就是一个循环 -> 更新剩余需要兑换的量和拿到的量 -> 检查是否需要跨越tick -> 更新价格和tick -> 得到本次循环的处理过的amount0和拿到的amount1 -> transfer token
-    }
+   - 如果已经创建，且池子没有价格：
+     - 调用池子的 `initialize()` 进行价格的初始化。
 
-增加liquidity:
-    params:
-        1. NFT tokenid
-        2. 提供的amount0
-        3. 提供的amount1
-        4. 成功mint进的amount0最低值
-        5. 成功mint进的amount1最低值
-        6. 有效期
-    调用父合约 addLiquidity() 计算mint得到的liquidity和需要的token amount并向指定头寸mint -> 计算手续费和token欠款 -> 更新liquidity fee
+## Mint 一个新的 NFT Position
 
-减少liquidity:
-    params:
-        1. NFT tokenid
-        2. 要减少的liquidity数量
-        3. 拿到amount0最低值
-        4. 拿到amount1最低值
-        5. 有效期
-    调用pool的burn函数，修改position并给出池子退回的token amount，累积到tokensOwed -> 结算之前的收益并更新手续费相关字段
+1. **确认池子已初始化**。
+2. **计算 mint 所需流动性**。
+3. **调用池子的 `mint` 函数**：
+   - 利用流动性对 position 进行更新。
+   - 调用回调函数实现 token 的转移。
+   - 检测 token 的转移并触发事件。
 
+### `_modifyPosition()`
 
-移除一个NFTposition:
-    先移除所有的流动性 -> burn NFT 
+- 调用 `_updatePosition()` 修改 position。
+- 根据加流动性的三种情况（包含现价、在现价上方、在现价下方）计算 amount。
+- 返回更新后的 position 和需要的 token 数量。
+
+### `_updatePosition()`
+
+- 更新 `lower tick` 和 `upper tick`，并查看是否需要对 tick 进行翻转。
+- 更新 position 的数据。
+- 如果是减少流动性则清除对应的 tick 数据。
+
+## Swap
+
+1. **外部 Router 选择 `exactInput` 或 `exactOutput` 模式**：
+   - 设置限价、交易方向和多重池子路径。
+
+2. **调用 `swap()` 进入循环**：
+   - 条件：token 消耗完或到达限价即停止。
+   - 每跨越一个 tick 就是一个循环。
+   - 更新剩余需要兑换的量和拿到的量。
+   - 检查是否需要跨越 tick。
+   - 更新价格和 tick。
+   - 得到本次循环处理过的 `amount0` 和拿到的 `amount1`。
+   - Transfer token。
+
+## 增加 Liquidity
+
+### 参数
+
+1. NFT `tokenid`
+2. 提供的 `amount0`
+3. 提供的 `amount1`
+4. 成功 mint 进的 `amount0` 最低值
+5. 成功 mint 进的 `amount1` 最低值
+6. 有效期
+
+### 过程
+
+1. 调用父合约 `addLiquidity()` 计算 mint 得到的 liquidity 和需要的 token amount 并向指定头寸 mint。
+2. 计算手续费和 token 欠款。
+3. 更新 liquidity fee。
+
+## 减少 Liquidity
+
+### 参数
+
+1. NFT `tokenid`
+2. 要减少的 liquidity 数量
+3. 拿到 `amount0` 最低值
+4. 拿到 `amount1` 最低值
+5. 有效期
+
+### 过程
+
+1. 调用池子的 `burn` 函数：
+   - 修改 position 并给出池子退回的 token amount，累积到 `tokensOwed`。
+2. 结算之前的收益并更新手续费相关字段。
+
+## 移除一个 NFT Position
+
+1. 先移除所有的流动性。
+2. Burn NFT。

@@ -173,3 +173,74 @@ function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data)
 
 1. 先移除所有的流动性。
 2. Burn NFT。
+
+
+### Tick 部分
+
+#### 整体架构
+
+- 每个 LP 把两个特定的 tick 设为端点，在这两个 tick 上写入流动性相关数据。
+
+#### Tick 和 SqrtPrice 的关系
+
+- **Tick 是离散的，Price 是连续的**：
+  - 一个 tick 对应一个连续的 price 区间。
+  - 举例：身高
+    - 三个 tick: 16x，17x，18x
+    - 具体 price：
+      - 160 ~ 169.99999 都属于 16x
+      - 170 ~ 179.99999 都属于 17x
+  - 转化关系：
+    - 从 tick 转化为 price 时，输入 16x 会得到 160
+    - 从 price 转化为 tick 时，输入 160，165，都会得到 16x；输入 170 会得到 17x
+
+
+- **LiquidityGross 和 LiquidityNet**：
+  - **LiquidityGross**：某个 tick 上的总流动性，即在该 tick 上所有流动性提供者提供的流动性总和。
+  - **LiquidityNet**：某个 tick 上的净流动性变化值，用于表示在 tick 上跨越时流动性的增加或减少。
+    - 当价格从左到右跨越 tick 时，增加 `LiquidityNet` 的流动性。
+    - 当价格从右到左跨越 tick 时，减少 `LiquidityNet` 的流动性。
+
+- **流动性提供**：
+  - LP 在特定的 tick 区间内提供流动性来赚取手续费。
+  - 初始化后的 tick 在交易过程中会被用来计算和更新流动性及手续费。
+
+### Swap
+
+- **跨越 tick 时**：
+  - 检查当前 tick 是否已初始化。
+  - 如果未初始化，跳过并找到下一个已初始化的 tick。
+  - 更新流动性和手续费状态。
+  - 根据 `LiquidityNet` 更新流动性：
+    - 当价格从左到右跨越 tick 时，增加 `LiquidityNet` 的流动性。
+    - 当价格从右到左跨越 tick 时，减少 `LiquidityNet` 的流动性。
+
+
+#### LiquidityGross 和 LiquidityNet
+
+  - **LiquidityNet**：表示当价格从左至右经过此 tick 时整体流动性需要变化的净值。
+    - 对于单个流动性头寸：
+      - `lower tick` 的 `LiquidityNet` 值为正。
+      - `upper tick` 的 `LiquidityNet` 值为负。
+    - 比方说，有两个流动性头寸的流动性相等（`L = 500`），并且这两个头寸同时引用了一个 tick，其中一个为 `lower tick`，另一个为 `upper tick`，那么对于这个 tick，它的 `LiquidityNet = 0`。
+
+  - **LiquidityGross**：记录流动性的总值（不考虑 `lower` 或 `upper`）。
+    - 用于判断一个 tick 是否仍然被引用。
+    - 通过流动性变化前后 `liquidityGross` 是否等于 0 来判断该 tick 是否仍被引用。
+
+- **流动性更新**：
+  - 当价格变动导致 `tick` 越过一个头寸的 `lower` 或 `upper` tick 时，需根据 tick 中记录的值来更新当前价格所对应的总体流动性。
+  - 假设头寸的流动性值为 `ΔL`，会有以下四种情况：
+    1. token0 价格上升，即从左至右越过一个 `lower tick` 时：
+       - `L = L + ΔL`
+    2. token0 价格上升，即从左至右越过一个 `upper tick` 时：
+       - `L = L - ΔL`
+    3. token0 价格下降，即从右至左越过一个 `upper tick` 时：
+       - `L = L + ΔL`
+    4. token0 价格下降，即从右至左越过一个 `lower tick` 时：
+       - `L = L - ΔL`
+  - `liquidityNet` 中记录的就是当从左至右穿过这个 tick 时，需要增减的流动性：
+    - 当其为 `lower tick` 时，值为正。
+    - 当其为 `upper tick` 时，值为负。
+  - 对于从右至左穿过的情况，将 `liquidityNet` 的值取反
+

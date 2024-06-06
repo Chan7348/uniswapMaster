@@ -313,5 +313,5 @@ if (state.sqrtPriceX96 == step.sqrtPriceNextX96) {
    state.tick = zeroForOne ? step.tickNext - 1 : step.tickNext;
 }
 ```
-移动到next价格(端点/word边界)，之后的这个赋值是啥个操作，为什么0for1就要 - 1？
-为什么每次循环末进行完这个操作就可以走到下一个word了？而且，这个赋值的语句是包含了走到端点/word两种情况，为什么走到端点也要进行这个操作？
+~~移动到next价格(端点/word边界)，之后的这个赋值是啥个操作，为什么0for1就要 - 1？
+为什么每次循环末进行完这个操作就可以走到下一个word了？而且，这个赋值的语句是包含了走到端点/word两种情况，为什么走到端点也要进行这个操作？~~

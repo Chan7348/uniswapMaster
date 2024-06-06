@@ -79,11 +79,48 @@ function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data)
 
 
 
-## V3
+# V3
 
-## 创建新池子的过程
+## TICK
+tick分为以下两种:
+   1. 普通tick -> 0
+   2. 特殊tick,这些是可被初始化(当作端点)的tick，由tickSpacing决定，有以下两种状态：
+      1. 已初始化(端点) 1
+      2. 未初始化 0
+**tickBitmap**: 储存所有tick的初始化信息(包含普通tick和特殊tick)
+内部tick在word中存储
+在 word 这个 `uint256` 结构中，我们每一位从小到大的 tick 是按照从低位到高位的方式存储的，比如 `100000`，这个 1 其实是存储在了第六号位置。
+所以在同一个 word 中，如果我们 swap 为 `0for1`，实际上 tick 向下寻找，是在向右寻找低位。
+如果我们的 swap 为 `1for0`，实际上 tick 向上寻找，是在向左寻找高位。
+而word 之间的顺序还是正序的。
 
-### 调用 `createAndInitializePoolIfNecessary()`
+在swap的具体细节中，
+```solidity
+state.tick = zeroForOne ? step.tickNext - 1 : step.tickNext;
+```
+~~我们`0for1`时，使用word的方向是从右到左，使用word内部tick的方向是从左到右，也就是从高位到低位。这里在swap循环的末尾对tick执行更新把`step.tickNext - 1`赋值给了tick，在bitmap中，如果我们这轮走到了word末尾，没有找到端点，是把tick放到了左边下一个word的最低位以供下次查询。如果我们这轮没有走到word末尾，也就是我们在本word中找到了端点的话，也是向左移一位，方便下次寻找(还是在本word)~~
+```
+low tick  <--------------------- high tick
+             0 for 1 价格下降
+           ->      ->     ->
+          0000 ｜ 0000 ｜ 0010   bitmap
+ 
+          <---------------------
+```
+~~`1for0`时，使用word的方向是从左到右，而使用word内部tick的方向是从右到左，从低位到高位~~
+```
+low tick  ---------------------> high tick
+             1 for 0 价格上升
+          <-      <-     <-
+          0000 ｜ 0000 ｜ 0010   bitmap
+
+          --------------------->
+```
+~~
+
+### 创建新池子的过程
+
+#### 调用 `createAndInitializePoolIfNecessary()`
 
 1. **调用 `getPool()`**：
    - 计算池子的地址。
@@ -170,18 +207,6 @@ function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data)
 
 ---
 
-### nextInitializedTickWithinOneWord
-
-```nextInitializedTickWithinOneWord(tick, tickSpacing, lte) -> (next, initialized)```
-
-在同一个 word 中，找出下一个端点，如果没有的话就停在下一个 word 的开头，便于下一轮循环。
-
-在 word 这个 `uint256` 结构中，我们每一位从小到大的 tick 是按照从低位到高位的方式存储的，比如 `100000`，这个 1 其实是存储在了第六号位置。所以在同一个 word 中，如果我们 swap 为 `0for1`，实际上 tick 向下寻找，是在向右寻找低位。如果我们的 swap 为 `1for0`，实际上 tick 向上寻找，是在向左寻找高位。
-
-word 之间的顺序还是正序的。下面来看看代码实现：
-
----
-
 #### position(tick) -> (wordPos, bitPos)
 
 这个函数用于获取指定 tick 所在的 word，并给出其在内部的位置：
@@ -238,5 +263,55 @@ if (lte) {
 }
 ```
 
----
 
+
+---
+### 仍需深究的问题
+#### 问题1:
+nextInitializedTickWithinOneWord()里
+```solidity
+int24 compressed = tick / tickSpacing;
+...
+next = initialized
+   ? (compressed - int24(bitPos - BitMath.mostSignificantBit(masked))) * tickSpacing // 快进到下一个可用的tick
+   : (compressed - int24(bitPos)) * tickSpacing;
+```
+先压缩再乘回去这个操作为什么是不受影响的？
+
+#### 问题2，3:
+swap中
+```solidity
+if (state.sqrtPriceX96 == step.sqrtPriceNextX96) {
+   if (step.initialized) {
+       // check for the placeholder value, which we replace with the actual value the first time the swap
+       // crosses an initialized tick
+       if (!cache.computedLatestObservation) {
+           (cache.tickCumulative, cache.secondsPerLiquidityCumulativeX128) = observations.observeSingle(
+               cache.blockTimestamp,
+               0,
+               slot0Start.tick,
+               slot0Start.observationIndex,
+               cache.liquidityStart,
+               slot0Start.observationCardinality
+           );
+           cache.computedLatestObservation = true;
+       }
+       int128 liquidityNet =
+           ticks.cross( // 处理价格跨越一个tick时的所有逻辑，包括重新计算L净变化量 liquidityNet
+               step.tickNext,
+               (zeroForOne ? state.feeGrowthGlobalX128 : feeGrowthGlobal0X128),
+               (zeroForOne ? feeGrowthGlobal1X128 : state.feeGrowthGlobalX128),
+               cache.secondsPerLiquidityCumulativeX128,
+               cache.tickCumulative,
+               cache.blockTimestamp
+           );
+       // if we're moving leftward, we interpret liquidityNet as the opposite sign
+       // safe because liquidityNet cannot be type(int128).min
+       if (zeroForOne) liquidityNet = -liquidityNet;
+       state.liquidity = LiquidityMath.addDelta(state.liquidity, liquidityNet);
+   }
+   state.tick = zeroForOne ? step.tickNext - 1 : step.tickNext;
+}
+```
+移动到next价格(端点/word边界)，之后的这个赋值是啥个操作，为什么0for1就要 - 1？
+为什么每次循环末进行完这个操作就可以走到下一个word了？而且，这个赋值的语句是包含了走到端点/word两种情况，为什么走到端点也要进行这个操作？

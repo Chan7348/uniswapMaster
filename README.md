@@ -203,11 +203,152 @@ if (lte) {
    // 1for0，价格上升
    (int16 wordPos, uint8 bitPos) = position(compressed + 1);// 从下一个tick的word开始
    uint256 mask = ~((1 << bitPos) - 1);
-   uint256 masked = self[wordPos] & mas // 保留左侧的所有1，右侧1被清零
+   uint256 masked = self[wordPos] & mas // 找出左侧的所有1
+   // if there are no initialized ticks to the left of the current tick, return leftmost in the word
    initialized = masked != 0;
    // overflow/underflow is possible, but prevented externally by limiting both tickSpacing and tick
    next = initialized
-       ? (compressed + 1 + int24(BitMath.leastSignificantBit(masked) - bitPos)) * tickSpacing// 找到最小的1，即最右侧的那个，目标位置
-       : (compressed + 1 + int24(type(uint8).max - bitPos)) * tickSpacing; // 当前word没有
+       ? (compressed + 1 + int24(BitMath.leastSignificantBit(masked) - bitPos)) * tickSpacing
+       : (compressed + 1 + int24(type(uint8).max - bitPos)) * tickSpacing;
 }
 ```
+
+
+
+---
+
+### Swap
+
+在 `swap` 中，我们要在同一个 word 中找到下一个初始化过的 tick 或者返回下一个 word 的开头 tick，这个目标 tick 是用 `nextInitializedTickWithinOneWord()` 寻找的。
+
+`tickSpacing` 只有两个地方用到：
+1. `_updatePosition` 翻转 tick
+2. `swap` 过程中找到下一个可用的端点
+
+`swap` while 循环的目的：只在当前 word 中寻找，让单次交易的 tick 跨度不会太大，减少计算中溢出的可能性。
+
+**注意区分跨 tick，跨端点，跨 word 的区别！**
+
+---
+
+#### swap()
+
+1. 储存 cache 和 state
+2. 循环中：
+    1. 把现价存储为 `PriceStart`，标志着本次循环的起始价格
+    2. 存储同一个 word 中的下一个端点 `tickNext` 和对应的价格，如果没有就存储下一个 word 的开头 tick (这样做的目的是方便下次循环中，我们可以直接使用 word 开头的 tick 进行寻找)
+    3. 根据 `tickNext` 对应的价格进行 `computeSwapStep`，尝试移动到 `tickNext` 并给出本次 `computeSwapStep` 的 `amountIn` 和 `amountOut`
+    4. 如果：
+        1. 成功移动到下一端点：更新 net，state.liquidity，tick
+        2. 没有成功移动到下一个端点：更新 tick，这种情况下就是说我们走到的是下一个 word 的开头 tick
+        3. 如果不是以上两种情况，并且 price 跟循环的 `priceStart` 不同，也就是价格发生移动了：这种情况我们 swap 已经结束，重新计算 tick，不跨端点，也不跨 word
+3. 循环结束，先检测 swap 前后 tick 是否变化：true -> 更新预言机，price，tick；false -> 未跨 tick，只更新 price
+4. 如果跨端点了，要更新全局 liquidity
+5. 根据循环结果，计算 amount
+6. 根据 swap 方向，进行 token 的转移，callback
+
+---
+
+### computeSwapStep
+
+```computeSwapStep(sqrtRatioCurrentX96, sqrtRatioTargetX96, liquidity, amountRemaining, feePips) -> (sqrtRatioNextX96, amountIn, amountOut, feeAmount)```
+
+这个函数用于处理不跨端点时的 swap 过程，也就是普通的 AMM 公式 （这函数可读性实在是太差了，估计是为了极致地省 gas）
+
+第二个参数 `targetPrice` 入参计算方式：
+- 如果：
+  1. 0for1 -> limit/next 大的一个。如果是 0for1 价格会下降，所以会先碰到大的一个
+  2. 1for0 -> limit/next 小的一个。如果是 1for0 价格会上升，所以会先碰到小的一个
+
+1. **exactIn**
+    1. 先扣除 LP 费用，更新 remaining
+    2. 根据 liquidity 和两个 price，算出需要多少 `amountIn`
+    3. 如果：
+        - `max`. remaining 足够支撑价格变动 -> 直接返回 Target 价格
+        - `notMax`. 我们的 remaining 不够，停在半路 -> 就要计算到我们能移动到什么价格
+    4. 根据 liquidity 和两个 price，算出需要多少 `amountOut`
+    5. 如果：
+        - `notMax`. 用初始的 remaining - amountIn，剩下的部分都归为手续费
+        - `max`. 按 `amountIn` 和比例算出要多少 fee，这里有一个 rounding up
+    6. 返回 `priceNext`，两个 amount，和 fee
+2. **exactOut**
+    1. 根据 liquidity 和两个 price，算出需要多少 `amountOut`
+    2. 如果：
+        - `max`. remaining 足够支撑价格变动 -> 直接返回 Target 价格
+        - `notMax`. remaining 不够，停在半路 -> 计算出停止到了哪个价格
+    3. 根据 liquidity 和两个价格，算出 `amountIn`
+    4. 如果 `amountOut` 超过了 remaining，也就是说停在了半路，也就是说我们的 `PriceNext` 是根据 remaining 计算出来的，那么我们就要用 `amountRemaining` 替换掉 `amountOut`
+    5. 按 `amountIn` 和比例算出 fee，这里有一个 rounding up
+
+---
+
+### nextInitializedTickWithinOneWord
+
+```nextInitializedTickWithinOneWord(tick, tickSpacing, lte) -> (next, initialized)```
+
+在同一个 word 中，找出下一个端点，如果没有的话就停在下一个 word 的开头，便于下一轮循环。
+
+在 word 这个 `uint256` 结构中，我们每一位从小到大的 tick 是按照从低位到高位的方式存储的，比如 `100000`，这个 1 其实是存储在了第六号位置。所以在同一个 word 中，如果我们 swap 为 `0for1`，实际上 tick 向下寻找，是在向右寻找低位。如果我们的 swap 为 `1for0`，实际上 tick 向上寻找，是在向左寻找高位。
+
+word 之间的顺序还是正序的。下面来看看代码实现：
+
+---
+
+#### position(tick) -> (wordPos, bitPos)
+
+这个函数用于获取指定 tick 所在的 word，并给出其在内部的位置：
+
+```solidity
+wordPos = int16(tick >> 8); // 将 tick 向右进 8 位，相当于将数除以 2^8=256, tick / 2^8 也就是我们所在的 word 的位置
+bitPos = uint8(tick % 256); // 拿到刚刚的余数，这个余数也就是我们的 tick 在这个 word 中的相对位置
+```
+
+---
+
+#### flipTick(tick, tickSpacing)
+
+这个函数用于将 bitmap 上的端点进行翻转，0->1 or 1->0
+
+```solidity
+require(tick % tickSpacing == 0); // tick 必须是在 tickSpacing 上的可初始化的点
+(int16 wordPos, uint8 bitPos) = position(tick / tickSpacing);
+uint256 mask = 1 << bitPos; // 2 ^ bitPos 生成掩码，除了 tick 处为 1 之外所有的数字都为 0
+self[wordPos] ^= mask; // 将 Bitmap 与我们的掩码进行 异或 ，就能将我们的 tick 翻转
+```
+
+---
+
+#### nextInitializedTickWithinOneWord(tick, tickSpacing, lte) -> (next, initialized)
+
+```solidity
+int24 compressed = tick / tickSpacing; // 对 tick 进行压缩
+if (tick < 0 && tick % tickSpacing != 0) compressed--; // 向负无穷取整
+```
+
+这里的压缩是为了忽略 spacing 中间的 tick，便于计算：
+
+```solidity
+if (lte) {
+   (int16 wordPos, uint8 bitPos) = position(compressed);
+   uint256 mask = (1 << bitPos) - 1 + (1 << bitPos); // 这个掩码是当前 bitPos 及右边的所有位都为 1
+   uint256 masked = self[wordPos] & mask; // 将掩码覆盖在当前 word 上获取右边的所有位，进行按位与操作，也就是说我们清除 bitPos 左侧的 1，只保留其右侧的 1。
+   initialized = masked != 0; // 检查右侧有没有 1
+   next = initialized
+       ? (compressed - int24(bitPos - BitMath.mostSignificantBit(masked))) * tickSpacing // 找到第一个 1 即最大的那个 1，跳到目标位置
+       : (compressed - int24(bitPos)) * tickSpacing; // 右侧没有 1 的话，也就是说没有可用端点，这种情况我们就需要跳到末尾
+} else {
+   // 1for0，价格上升
+   (int16 wordPos, uint8 bitPos) = position(compressed + 1); // 从下一个 tick 的 word 开始
+   uint256 mask = ~((1 << bitPos) - 1);
+   uint256 masked = self[wordPos] & mask; // 找出左侧的所有 1
+   // if there are no initialized ticks to the left of the current tick, return leftmost in the word
+   initialized = masked != 0;
+   // overflow/underflow is possible, but prevented externally by limiting both tickSpacing and tick
+   next = initialized
+       ? (compressed + 1 + int24(BitMath.leastSignificantBit(masked) - bitPos)) * tickSpacing
+       : (compressed + 1 + int24(type(uint8).max - bitPos)) * tickSpacing;
+}
+```
+
+---
+

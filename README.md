@@ -101,146 +101,113 @@ function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data)
    - 如果已经创建，且池子没有价格：
      - 调用池子的 `initialize()` 进行价格的初始化。
 
-## Mint 一个新的 NFT Position
 
-1. **确认池子已初始化**。
-2. **计算 mint 所需流动性**。
-3. **调用池子的 `mint` 函数**：
-   - 利用流动性对 position 进行更新。
-   - 调用回调函数实现 token 的转移。
-   - 检测 token 的转移并触发事件。
+swap中，我们要在同一个word中找到下一个初始化过的tick或者返回下一个word的开头tick，这个目标tick是用nextInitializedTickWithinOneWord()寻找的
 
-### `_modifyPosition()`
-
-- 调用 `_updatePosition()` 修改 position。
-- 根据加流动性的三种情况（包含现价、在现价上方、在现价下方）计算 amount。
-- 返回更新后的 position 和需要的 token 数量。
-
-### `_updatePosition()`
-
-- 更新 `lower tick` 和 `upper tick`，并查看是否需要对 tick 进行翻转。
-- 更新 position 的数据。
-- 如果是减少流动性则清除对应的 tick 数据。
-
-## Swap
-
-1. **外部 Router 选择 `exactInput` 或 `exactOutput` 模式**：
-   - 设置限价、交易方向和多重池子路径。
-
-2. **调用 `swap()` 进入循环**：
-   - 条件：token 消耗完或到达限价即停止。
-   - 每跨越一个 tick 就是一个循环。
-   - 更新剩余需要兑换的量和拿到的量。
-   - 检查是否需要跨越 tick。
-   - 更新价格和 tick。
-   - 得到本次循环处理过的 `amount0` 和拿到的 `amount1`。
-   - Transfer token。
-
-## 增加 Liquidity
-
-### 参数
-
-1. NFT `tokenid`
-2. 提供的 `amount0`
-3. 提供的 `amount1`
-4. 成功 mint 进的 `amount0` 最低值
-5. 成功 mint 进的 `amount1` 最低值
-6. 有效期
-
-### 过程
-
-1. 调用父合约 `addLiquidity()` 计算 mint 得到的 liquidity 和需要的 token amount 并向指定头寸 mint。
-2. 计算手续费和 token 欠款。
-3. 更新 liquidity fee。
-
-## 减少 Liquidity
-
-### 参数
-
-1. NFT `tokenid`
-2. 要减少的 liquidity 数量
-3. 拿到 `amount0` 最低值
-4. 拿到 `amount1` 最低值
-5. 有效期
-
-### 过程
-
-1. 调用池子的 `burn` 函数：
-   - 修改 position 并给出池子退回的 token amount，累积到 `tokensOwed`。
-2. 结算之前的收益并更新手续费相关字段。
-
-## 移除一个 NFT Position
-
-1. 先移除所有的流动性。
-2. Burn NFT。
+tickSpacing只有两个点用到
+_updatePosition 翻转tick
+swap过程中 找到下一个可用的端点
 
 
-### Tick 部分
+swap while循环的目的：只在当前word中寻找，让单次交易的tick跨度不会太大，减少计算中溢出的可能性
 
-#### 整体架构
+注意区分跨tick，跨端点，跨word的区别！
 
-- 每个 LP 把两个特定的 tick 设为端点，在这两个 tick 上写入流动性相关数据。
+swap():
+1. 储存cache和state
+2. 循环中：
+   1. 把现价存储为PriceStart，标志着本次循环的起始价格
+   2. 存储同一个word中的下一个端点tickNext和对应的价格，如果没有就存储下一个word的开头tick(这样做的目的是方便下次循环中，我们可以直接使用word开头的tick进行寻找)
+   3. 根据tickNext对应的价格进行computeSwapStep，尝试移动到tickNext并给出本次computeSwapStep的amountIn和amountOut
+   4. 如果
+      1. 成功移动到下一端点：更新net，state.liquidity，tick
+      2. 没有成功移动到下一个端点：更新tick，这种情况下就是说我们走到的是下一个word的开头tick
 
-#### Tick 和 SqrtPrice 的关系
-
-- **Tick 是离散的，Price 是连续的**：
-  - 一个 tick 对应一个连续的 price 区间。
-  - 举例：身高
-    - 三个 tick: 16x，17x，18x
-    - 具体 price：
-      - 160 ~ 169.99999 都属于 16x
-      - 170 ~ 179.99999 都属于 17x
-  - 转化关系：
-    - 从 tick 转化为 price 时，输入 16x 会得到 160
-    - 从 price 转化为 tick 时，输入 160，165，都会得到 16x；输入 170 会得到 17x
-
-
-- **LiquidityGross 和 LiquidityNet**：
-  - **LiquidityGross**：某个 tick 上的总流动性，即在该 tick 上所有流动性提供者提供的流动性总和。
-  - **LiquidityNet**：某个 tick 上的净流动性变化值，用于表示在 tick 上跨越时流动性的增加或减少。
-    - 当价格从左到右跨越 tick 时，增加 `LiquidityNet` 的流动性。
-    - 当价格从右到左跨越 tick 时，减少 `LiquidityNet` 的流动性。
-
-- **流动性提供**：
-  - LP 在特定的 tick 区间内提供流动性来赚取手续费。
-  - 初始化后的 tick 在交易过程中会被用来计算和更新流动性及手续费。
-
-### Swap
-
-- **跨越 tick 时**：
-  - 检查当前 tick 是否已初始化。
-  - 如果未初始化，跳过并找到下一个已初始化的 tick。
-  - 更新流动性和手续费状态。
-  - 根据 `LiquidityNet` 更新流动性：
-    - 当价格从左到右跨越 tick 时，增加 `LiquidityNet` 的流动性。
-    - 当价格从右到左跨越 tick 时，减少 `LiquidityNet` 的流动性。
+      3. 如果不是以上两种情况，并且price跟循环的priceStart不同，也就是价格发生移动了：这种情况我们swap已经结束，重新计算tick，不跨端点，也不跨word
+3. 循环结束，先检测swap前后tick是否变化：true -> 更新预言机，price，tick
+                                    false -> 未跨tick，只更新price
+4. 如果跨端点了，要更新全局liquidity
+5. 根据循环结果，计算amount
+6. 根据swap方向，进行token的转移，callback
 
 
-#### LiquidityGross 和 LiquidityNet
 
-  - **LiquidityNet**：表示当价格从左至右经过此 tick 时整体流动性需要变化的净值。
-    - 对于单个流动性头寸：
-      - `lower tick` 的 `LiquidityNet` 值为正。
-      - `upper tick` 的 `LiquidityNet` 值为负。
-    - 比方说，有两个流动性头寸的流动性相等（`L = 500`），并且这两个头寸同时引用了一个 tick，其中一个为 `lower tick`，另一个为 `upper tick`，那么对于这个 tick，它的 `LiquidityNet = 0`。
+computeSwapStep(sqrtRatioCurrentX96, sqrtRatioTargetX96, liquidity, amountRemaining, feePips): -> (sqrtRatioNextX96, amountIn, amountOut, feeAmount)
+这个函数用于处理不跨端点时的swap过程，也就是普通的amm公式 （这函数可读性实在是太差了，估计是为了极致地省gas）
+第二个参数targetPrice入参计算方式：
+   如果：
+      1. 0for1 -> limit/next 大的一个  如果是0for1价格会下降，所以会先碰到大的一个
+      2. 1for0 -> limit/next 小的一个  如果是1for0价格会上升，所以会先碰到小的一个
+   
+1. exactIn
+   1. 先扣除LP费用，更新remaining
+   2. 根据liquidity和两个price，算出需要多少amountIn
+   3. 如果
+      max. remaining足够支撑价格变动 -> 直接返回Target价格
+      notMax. 我们的remaining不够，停在半路 -> 就要计算到我们能移动到什么价格
+   4. 根据liquidity和两个price，算出需要多少amountOut
+   5. 如果
+      notMax. 用初始的remaining - amoutIn，剩下的部分都归为手续费
+      max. 按amountIn和比例算出要多少fee，这里有一个rounding up
+   6. 返回priceNext，两个amount，和fee
+2. exactOut
+   1. 根据liquidity和两个price，算出需要多少amountOut
+   2. 如果
+      max. remaining足够支撑价格变动 -> 直接返回Target价格
+      notMax. remaining不够，停在半路 -> 计算出停止到了哪个价格
+   3. 根据liquidity和两个价格，算出amountIn
+   4. 如果amountOut超过了remaining，也就是说停在了半路，也就是说我们的PriceNext是根据remaining计算出来的，那么我们就要用amountRemaining替换掉amountOut
+   5. 按amountIn和比例算出fee，这里有一个rounding up
 
-  - **LiquidityGross**：记录流动性的总值（不考虑 `lower` 或 `upper`）。
-    - 用于判断一个 tick 是否仍然被引用。
-    - 通过流动性变化前后 `liquidityGross` 是否等于 0 来判断该 tick 是否仍被引用。
 
-- **流动性更新**：
-  - 当价格变动导致 `tick` 越过一个头寸的 `lower` 或 `upper` tick 时，需根据 tick 中记录的值来更新当前价格所对应的总体流动性。
-  - 假设头寸的流动性值为 `ΔL`，会有以下四种情况：
-    1. token0 价格上升，即从左至右越过一个 `lower tick` 时：
-       - `L = L + ΔL`
-    2. token0 价格上升，即从左至右越过一个 `upper tick` 时：
-       - `L = L - ΔL`
-    3. token0 价格下降，即从右至左越过一个 `upper tick` 时：
-       - `L = L + ΔL`
-    4. token0 价格下降，即从右至左越过一个 `lower tick` 时：
-       - `L = L - ΔL`
-  - `liquidityNet` 中记录的就是当从左至右穿过这个 tick 时，需要增减的流动性：
-    - 当其为 `lower tick` 时，值为正。
-    - 当其为 `upper tick` 时，值为负。
-  - 对于从右至左穿过的情况，将 `liquidityNet` 的值取反
+nextInitializedTickWithinOneWord(tick, tickSpacing, lte) -> (next, initialized)
+在同一个word中，找出下一个端点，如果没有的话就停在下一个word的开头，便于下一轮循环
+在word这个uint256结构中，我们每一位从小到大的tick是按照从低位到高位的方式存储的，比如 100000，这个1其实是存储在了第六号位置
+所以在同一个word中，如果我们swap 为 0for1，实际上tick向下寻找，是在向右寻找低位 / 如果我们的swap为1for0，实际上tick向上寻找，是在向左寻找高位
+word之间的顺序还是正序的
+下面来看看代码实现：
 
+position(tick) -> (wordPos, bitPos)
+这个函数用于获取指定tick所在的word，并给出其在内部的位置
+```solidity
+wordPos = int16(tick >> 8); // 将tick向右进8位，相当于将数除以2^8=256, tick / 2^8 也就是我们所在的word的位置
+bitPos = uint8(tick % 256); // 拿到刚刚的余数，这个余数也就是我们的tick在这个word中的相对位置
+```
+
+flipTick(tick, tickSpacing)
+这个函数用于将bitmap上的端点进行翻转，0->1 or 1->0
+```solidity
+require(tick % tickSpacing == 0); // tick必须是在tickSpacing上的可初始化的点
+(int16 wordPos, uint8 bitPos) = position(tick / tickSpacing);
+uint256 mask = 1 << bitPos;// 2 ^ bitPos 生成掩码，除了tick处为1之外所有的数字都为0
+self[wordPos] ^= mask; // 将Bitmap与我们的掩码进行 异或 ，就能将我们的tick翻转
+```
+
+nextInitializedTickWithinOneWord(tick, tickSpacing, lte) -> (next, initialized)
+```solidity
+int24 compressed = tick / tickSpacing; /// 对tick进行压缩
+if (tick < 0 && tick % tickSpacing != 0) compressed--; // 向负无穷取整
+```
+这里的压缩是为了忽略spacing中间的tick，便于计算
+
+```solidity
+if (lte) {
+   (int16 wordPos, uint8 bitPos) = position(compressed);
+   uint256 mask = (1 << bitPos) - 1 + (1 << bitPos);// 这个掩码是, 当前bitPos及右边的所有位都为1
+   uint256 masked = self[wordPos] & mask; // 将掩码覆盖在当前word上获取右边的所有位，进行按位与操作，也就是说我们清除bitPos左侧的1，只保留其右侧的1。
+   initialized = masked != 0; // 检查右侧有没有1
+   next = initialized
+       ? (compressed - int24(bitPos - BitMath.mostSignificantBit(masked))) * tickSpacing // 找到第一个1即最大的那个1，跳到目标位置
+       : (compressed - int24(bitPos)) * tickSpacing;// 右侧没有1的话，也就是说没有可用端点，这种情况我们就需要跳到末尾
+} else {
+   // 1for0，价格上升
+   (int16 wordPos, uint8 bitPos) = position(compressed + 1);// 从下一个tick的word开始
+   uint256 mask = ~((1 << bitPos) - 1);
+   uint256 masked = self[wordPos] & mas // 保留左侧的所有1，右侧1被清零
+   initialized = masked != 0;
+   // overflow/underflow is possible, but prevented externally by limiting both tickSpacing and tick
+   next = initialized
+       ? (compressed + 1 + int24(BitMath.leastSignificantBit(masked) - bitPos)) * tickSpacing// 找到最小的1，即最右侧的那个，目标位置
+       : (compressed + 1 + int24(type(uint8).max - bitPos)) * tickSpacing; // 当前word没有
+}
+```

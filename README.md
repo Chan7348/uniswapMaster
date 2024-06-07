@@ -87,6 +87,7 @@ tick分为以下两种:
    2. 特殊tick,这些是可被初始化(当作端点)的tick，由tickSpacing决定，有以下两种状态：
       1. 已初始化(端点) 1
       2. 未初始化 0
+tick.initialized 在向上翻转时由tick.update()设为true，而cleartick时则是直接在ticks的mapping中删除对应元素
 **tickBitmap**: 储存所有tick的初始化信息(包含普通tick和特殊tick)
 内部tick在word中存储
 在 word 这个 `uint256` 结构中，我们每一位从小到大的 tick 是按照从低位到高位的方式存储的，比如 `100000`，这个 1 其实是存储在了第六号位置。
@@ -279,6 +280,7 @@ next = initialized
 先压缩再乘回去这个操作为什么是不受影响的？
 
 #### 问题2，3:
+
 swap中
 ```solidity
 if (state.sqrtPriceX96 == step.sqrtPriceNextX96) {
@@ -315,3 +317,7 @@ if (state.sqrtPriceX96 == step.sqrtPriceNextX96) {
 ```
 ~~移动到next价格(端点/word边界)，之后的这个赋值是啥个操作，为什么0for1就要 - 1？
 为什么每次循环末进行完这个操作就可以走到下一个word了？而且，这个赋值的语句是包含了走到端点/word两种情况，为什么走到端点也要进行这个操作？~~
+
+
+### mint
+从外围合约来看，先

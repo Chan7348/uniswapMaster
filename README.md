@@ -110,6 +110,7 @@ tick分为以下两种:
       2. 未初始化 0
 
 tick.initialized在向上翻转时由tick.update()设为true，而cleartick时则是直接在ticks的mapping中删除对应元素
+
 **tickBitmap**: 储存所有tick的初始化信息(包含普通tick和特殊tick)
 内部tick在word中存储
 在 word 这个 `uint256` 结构中，我们每一位从小到大的 tick 是按照从低位到高位的方式存储的，比如 `100000`，这个 1 其实是存储在了第六号位置。

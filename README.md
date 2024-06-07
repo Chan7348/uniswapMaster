@@ -80,6 +80,9 @@ function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data)
 
 
 # V3
+## MATH
+![image](https://github.com/Chan7348/uniswapMaster/assets/105479728/d0746c12-7d69-482c-8612-cd48e4cd1da8)
+
 
 ## TICK
 tick分为以下两种:

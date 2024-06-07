@@ -85,7 +85,9 @@ function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data)
 $$(x+\frac L{\sqrt{p_b}})\cdot(y+L\sqrt{p_a})=L^2$$
 ##### 对核心公式的理解：
 LP侧：我们在ab两点加池子，也就是说我们需要添加尽可能少的liquidity，使得价格能够下降到a点，能够上涨到b点
+
 对于 c->a 这个变动需求，我们的价格是在下降，trader(XforY/0for1)，所以我们只需要为trader提供token1就可以了
+
 对于 c->b 这个变动需求，我们的价格是在上升，trader(YforX/1for0)，所以我们只需要为trader提供token0就可以了
 #### 总结：池子价格变动的时候，需要消耗哪个token，我们就要提供哪个token
 ##### 练习题1: 

@@ -82,7 +82,21 @@ function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data)
 # V3
 ## MATH
 ![image](https://github.com/Chan7348/uniswapMaster/assets/105479728/d0746c12-7d69-482c-8612-cd48e4cd1da8)
+$$(x+\frac L{\sqrt{p_b}})\cdot(y+L\sqrt{p_a})=L^2$$
+##### 对核心公式的理解：
+LP侧：我们在ab两点加池子，也就是说我们需要添加尽可能少的liquidity，使得价格能够下降到a点，能够上涨到b点
+对于 c->a 这个变动需求，我们的价格是在下降，trader(XforY/0for1)，所以我们只需要为trader提供token1就可以了
+对于 c->b 这个变动需求，我们的价格是在上升，trader(YforX/1for0)，所以我们只需要为trader提供token0就可以了
+#### 总结：池子价格变动的时候，需要消耗哪个token，我们就要提供哪个token
+##### 练习题1: 
+ETH/USDC 交易对，price为3000。现在我们要在(3000,3001)挂一个限价单，数额为1ETH，求价格触及3001时，我们手里的1ETH的平均卖出价格？
 
+先算出我们提供的流动性：
+$$\left(x_{real}+\frac{L}{\sqrt{3001}}\right)L\sqrt{3000}=L^{2}\\L=\frac{\sqrt{3000}\sqrt{3001}X_{real}}{\left(\sqrt{3001}-\sqrt{3000}\right)}$$
+根据流动性再算出拿到的USDC数量：
+$$\frac{L}{\sqrt{3001}}\left(y_{real}+L\sqrt{3000}\right)=L^{2}\\y_{real}=\left(\sqrt{3001}-\sqrt{3000}\right)L$$
+所以最终我们卖出的价格为：
+$$P=\frac{y_{real}}{x_{real}}=\sqrt{3001}\sqrt{3000}$$
 
 ## TICK
 tick分为以下两种:

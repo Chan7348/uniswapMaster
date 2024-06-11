@@ -80,7 +80,7 @@ function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data)
 
 
 # V3
-## MATH
+### MATH
 ![image](https://github.com/Chan7348/uniswapMaster/assets/105479728/d0746c12-7d69-482c-8612-cd48e4cd1da8)
 $$(x+\frac L{\sqrt{p_b}})\cdot(y+L\sqrt{p_a})=L^2$$
 ##### 对核心公式的理解：
@@ -102,7 +102,7 @@ $$Δy_{real}=\left(\sqrt{3001}-\sqrt{3000}\right)L$$
 所以最终我们卖出的价格为：
 $$P=\frac{Δy_{real}}{Δx_{real}}=\sqrt{3001}\sqrt{3000}$$
 
-## TICK
+### TICK
 tick分为以下两种:
    1. 普通tick -> 0
    2. 特殊tick,这些是可被初始化(当作端点)的tick，由tickSpacing决定，有以下两种状态：
@@ -179,6 +179,8 @@ low tick  ---------------------> high tick
 ---
 
 #### swap()
+
+简要地说，将需求数量拆分，通过不断寻找下一个端点(在一个word中)，不断地创造出短暂的L不变的小区间以供x * y = k 的swap公式能够运行。
 
 1. 储存 cache 和 state
 2. 循环中：
@@ -338,4 +340,53 @@ if (state.sqrtPriceX96 == step.sqrtPriceNextX96) {
 ```
 
 ### mint
+<<<<<<< Updated upstream
 
+=======
+从外围合约来看，用户调用mint() external，传入token，tick，amountDesired，amountMin等参数
+调用父合约LiquidityManagement的addLiquidity()，
+1. 通过三个价格和amountDesired计算出liquidity数量
+2. 调用pool的mint()拿到需要的amount0Int, amount1Int
+   1. modifyPosition()
+      1. updatePosition()
+         1. 调用ticks.update()，更新ticks Info结构并记录此端点是否进行了翻转
+         2. 如果端点进行了翻转，在tickBitmap中也进行相应的更新
+         3. 如果减少流动性，且翻转了，那就是清空了单独位置的流动性，单独清除ticks的存储
+      2. 加流动性的三种情况：
+         1. 加在了现价上方，也就是说只需要加token0，计算出需要的数量并返回
+         2. 包含了现价，我们需要单独算出两侧的amount，并且更新position
+         3. 加在了现价下方，只需要加token1，计算出需要的数量并返回
+3. 转换int格式，并且调用callback，data里面存储了 poolKey和payer两个信息，调用pay进行转账
+
+
+### burn
+根据NFT的tokenId，销毁这个NFT，要求其已经没有流动性
+
+### increaseLiquidity
+
+调用addLiquidity()
+1. 通过三个价格和amountDesired计算出liquidity数量
+2. 调用pool的mint()拿到需要的amount0Int, amount1Int
+   1. modifyPosition()
+      1. updatePosition()
+         1. 调用ticks.update()，更新ticks Info结构并记录此端点是否进行了翻转
+         2. 如果端点进行了翻转，在tickBitmap中也进行相应的更新
+         3. 如果减少流动性，且翻转了，那就是清空了单独位置的流动性，单独清除ticks的存储
+      2. 加流动性的三种情况：
+         1. 加在了现价上方，也就是说只需要加token0，计算出需要的数量并返回
+         2. 包含了现价，我们需要单独算出两侧的amount，并且更新position
+         3. 加在了现价下方，只需要加token1，计算出需要的数量并返回
+3. 转换int格式，并且调用callback，data里面存储了 poolKey和payer两个信息，调用pay进行转账
+4. 更新手续费和这个外部存储的这个position的liquidity
+
+### boost计算
+为了算出V3相对于V2的boost，我们需要想明白什么是boost，我理解的boost是指，V3和V2提供相同流动性所需要token价值的比例
+
+### flash
+v2和v3的不同之处在于，v2的flash loan和 flash swap都是在swap函数中操作的，而V3则是分成了flash和swap两个函数来进行操作
+flash借和还的token相同
+swap借和还的token不同
+
+flash中，对借款前后token数量的检查是每种token的数量都只能多不能少
+swap中，
+>>>>>>> Stashed changes

@@ -418,3 +418,32 @@ swap中，通过core 中swap()函数的回调函数进行操作，同样是乐�
 用L * fee 算出对position所有者的欠款，用户提取fee之后对欠款进行更新
 
 在计算过程中，通过将tickLower和tickUpper的feeOut，position的feeInside进行组合，计算出position中的手续费总和
+
+#### 做LP收取手续费的全流程：
+
+##### 创建position
+EOA -> NFPManager.mint()
+   添加完liquidity之后，找到目标position中的feeGrowthInside
+
+NFPManager.mint() -> pool.mint() -> pool._modifyPosition() -> pool._updatePosition()
+通过flobal和tickLower，tickUpper计算position内的feeGrowth
+
+pool._updatePosition() -> positions.update()
+通过两个inside和liquidityDelta，更新feeGrowthInside, 计算并累加tokensOwed
+
+回到NFPManager.mint()
+在_position映射中记录NFTid对应的position信息
+
+##### swap过程中手续费的累积
+pool.swap()
+state中记录了token的globalfee，根据兑换方向拿到一个feeGrowth
+在while循环中：
+   每一次step的fee都要记录
+   如果有feeProtocol要记录
+   在remaining中扣除fee
+   将本次得到的fee除以L，累加到feeGrowthGlobal上
+   如有需要，根据方向，cross tick，更新feeOutside
+
+##### 手续费的提取
+NFPManager.collet() -> pool.burn()
+使用burn来进行position的更新，然后更新tokensOwed， 并且调用pool.collect()

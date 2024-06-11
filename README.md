@@ -340,7 +340,6 @@ if (state.sqrtPriceX96 == step.sqrtPriceNextX96) {
 ```
 
 ### mint
-<<<<<<< Updated upstream
 
 =======
 从外围合约来看，用户调用mint() external，传入token，tick，amountDesired，amountMin等参数
@@ -388,5 +387,9 @@ flash借和还的token相同
 swap借和还的token不同
 
 flash中，对借款前后token数量的检查是每种token的数量都只能多不能少
-swap中，
->>>>>>> Stashed changes
+swap中，通过core 中swap()函数的回调函数进行操作，同样是乐观转账
+
+### fee
+针对每一个position进行单独计算
+针对单位L存储fee
+用L * fee 算出对position所有者的欠款，用户提取fee之后对欠款进行更新

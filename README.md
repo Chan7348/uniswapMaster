@@ -122,7 +122,7 @@ tick.initialized在向上翻转时由tick.update()设为true，而cleartick时�
 ```solidity
 state.tick = zeroForOne ? step.tickNext - 1 : step.tickNext;
 ```
-~~我们`0for1`时，使用word的方向是从右到左，使用word内部tick的方向是从左到右，也就是从高位到低位。这里在swap循环的末尾对tick执行更新把`step.tickNext - 1`赋值给了tick，在bitmap中，如果我们这轮走到了word末尾，没有找到端点，是把tick放到了左边下一个word的最低位以供下次查询。如果我们这轮没有走到word末尾，也就是我们在本word中找到了端点的话，也是向左移一位，方便下次寻找(还是在本word)~~
+
 ```
 low tick  <--------------------- high tick
              0 for 1 价格下降
@@ -131,7 +131,7 @@ low tick  <--------------------- high tick
  
           <---------------------
 ```
-~~`1for0`时，使用word的方向是从左到右，而使用word内部tick的方向是从右到左，从低位到高位~~
+
 ```
 low tick  ---------------------> high tick
              1 for 0 价格上升

@@ -111,6 +111,28 @@ tick分为以下两种:
 
 tick.initialized在向上翻转时由tick.update()设为true，而cleartick时则是直接在ticks的mapping中删除对应元素
 
+#### tickSpacingToMaxLiquidityPerTick(tickSpacing) -> (maxLiquidity)
+根据tickSpacing找出uint128下每个tick最多能承载的流动性
+
+#### getFeeGrowthInisde(self, tickLower, tickUpper, tickCurrent, feeGrowthGlobal0X128, feeGrowth) -> (feeGrowthInside0X128, feeGrowthInside1X128)
+根据端点和currentTick的两种情况，分别找出token0和token1的feeinside
+
+#### update(self, tick, tickCurrent, liquidityDelta, feeGrowthGlobal0X128, feeGrowthGlobal1X128, secondsPerLiquidityCumulativeX128, tickCumulative, time, upper, maxLiquidity) -> (flipped)
+这个函数只会在mint和burn时使用，用于对tick内的数据进行更新(主要是gross和net)，并且返回是否被翻转(初始化/销毁端点)
+
+#### cross(self, tick, feeGrowthGlobal0X128, feeGrowthGlobal1X128, secondsPerLiquidityCumulativeX128, tickCumulative, time) -> (liquidityNet)
+在swap的循环中使用，用于处理跨越tick的所有操作
+1. 用feeGrowthGlobal - outside，得到另一侧的fee
+2. 用secondsPerLiquidityCumulative - outside, 得到另一侧的secondsPerLiquidity
+3. 用tickCumulative - outside，得到另一侧的secondsOutside
+4. 返回tickNext的liquidity
+
+#### secondsOutside
+用于记录在该刻度的另一边已经花费的时间，
+每个时间点的t = time - tb - ta
+想要计算两个时间点之间花费的时间需要找出对应时间点的 t1 - t2
+比较不同刻度的tout没有意义，必须在两个刻度的tout都初始化之后，gross都大于0，给定开始时间和结束时间这个范围，计算流动性在该范围内的秒数，才有意义
+
 **tickBitmap**: 储存所有tick的初始化信息(包含普通tick和特殊tick)
 内部tick在word中存储
 在 word 这个 `uint256` 结构中，我们每一位从小到大的 tick 是按照从低位到高位的方式存储的，比如 `100000`，这个 1 其实是存储在了第六号位置。
@@ -290,6 +312,7 @@ if (lte) {
 
 
 ---
+
 ### 仍需深究的问题
 #### 问题1:
 nextInitializedTickWithinOneWord()里
@@ -393,3 +416,5 @@ swap中，通过core 中swap()函数的回调函数进行操作，同样是乐�
 针对每一个position进行单独计算
 针对单位L存储fee
 用L * fee 算出对position所有者的欠款，用户提取fee之后对欠款进行更新
+
+在计算过程中，通过将tickLower和tickUpper的feeOut，position的feeInside进行组合，计算出position中的手续费总和

@@ -447,3 +447,51 @@ state中记录了token的globalfee，根据兑换方向拿到一个feeGrowth
 ##### 手续费的提取
 NFPManager.collet() -> pool.burn()
 使用burn来进行position的更新，然后更新tokensOwed， 并且调用pool.collect()
+
+
+##### 手续费完结
+总结就是，position流动性不变时，利用globalfee，和tick的outside，在_updatePosition中算出position的inside，再乘上流动性的数量就可以计算出position的手续费了。
+如果position的流动性变动，需要重新进行计算
+tokensOwed是在position中记录的，每次提取会扣取相应的数量
+
+##### 对手续费算法的理解
+feeOutside，该tick相对于currentTick外侧的累积fee。对于某一个tick，在swap时如果不被跨越，
+这个值是固定的。swap过程中其实变化的是globalFee。两者相减，我们就能获取我们想要的deltafee。
+对于固定值的记录，减少变量的调整，有助于提高整体算法的稳定性。
+
+##### 举例
+两个LP，A在(2000,3000)提供liquidity数量为L1，B在(2500,3500)提供liquidity数量为L2
+以下tick指的均为价格所在处的tick
+TICK -> 2000: {
+   gross: L1
+   net: L1
+   feeGrowthOutside0: 0
+   feeGrowthOutside1: 0
+}
+TICK -> 2500: {
+   gross: L2
+   net: L2
+   feeGrowthOutside0: 0
+   feeGrowthOutside1: 0
+}
+TICK -> 3000: {
+   gross: L1
+   net: -L1
+   feeGrowthOutside0: 0
+   feeGrowthOutside1: 0
+}
+TICK -> 3500: {
+   gross: L2
+   net: -L2
+   feeGrowthOutside0: 0
+   feeGrowthOutside1: 0
+}
+在初始化position的时候，
+假设当前price为2700，这时的流动性为L1+L2
+在初始化position的时候，2000和2500位置的tick，feeOutside为global，3000和3500的feeOutside为0
+1. 经过了swap之后，price变为了2900
+   1for0，累积的手续费为token1
+   feeGrowthGlobal为G
+   这时我们对L1的position进行更新
+
+对于不同端点，比较它们的feeOut没有意义，只有用给定区间内feeOut和feeGlobal的增量算出的手续费才有意义

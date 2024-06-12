@@ -454,12 +454,12 @@ NFPManager.collet() -> pool.burn()
 如果position的流动性变动，需要重新进行计算
 tokensOwed是在position中记录的，每次提取会扣取相应的数量
 
-##### 对手续费算法的理解
+#### 对手续费算法的理解
 feeOutside，该tick相对于currentTick外侧的累积fee。对于某一个tick，在swap时如果不被跨越，
 这个值是固定的。swap过程中其实变化的是globalFee。两者相减，我们就能获取我们想要的deltafee。
 对于固定值的记录，减少变量的调整，有助于提高整体算法的稳定性。
 
-##### 举例
+#### 举例
 两个LP，A在(2000,3000)提供liquidity数量为L1，B在(2500,3500)提供liquidity数量为L2
 以下tick指的均为价格所在处的tick
 TICK -> 2000: {
@@ -495,3 +495,29 @@ TICK -> 3500: {
    这时我们对L1的position进行更新
 
 对于不同端点，比较它们的feeOut没有意义，只有用给定区间内feeOut和feeGlobal的增量算出的手续费才有意义
+
+
+
+### seconds 
+为外部合约提供便利，计算给定的position已经激活了多长时间
+为了实现这个目的，我们也需要构建类似fee的数据结构，通过比较端点与currentTick的关系找到激活的一侧，再计算出position above 和 below的值，就可以算出position内的激活累计时间
+
+secondsOutside -> tick的属性，在tick的另一边已经花费的时间
+
+### oracle
+除了价格的累积值记录之外还提供了交易对深度的累积值，帮助开发者判断此交易对预言机被攻击的难易程度
+oracle默认还是储存一个最近价格的时间累积值，不过可以根据需求由开发者对数量进行拓展，最多拓展到65535个价格
+oracle实际记录tick的时间累积值
+#### 几个库函数
+##### transform(last, blockTImestamp, tick, liquidity) -> Observation
+对observation数组中的一个observation进行更新
+这里secondsPerLiquidityCumulative的更新方式是，将delta扩展到Q128.128格式，然后除以流动性，如果没有流动性的话，默认是每秒+1
+
+##### initialize(self, time) -> (cardinality, cardinalityNext)
+对observation数组进行初始化
+
+##### write(self, index, blockTimestamp, tick, liquidity, cardinality, cardinalityNext) -> (indexUpdated, cardinalityUpdated)
+进行一些前置判断和运算，之后调用transform, 对observation数组中的一个observation进行更新
+
+##### grow(self, current, next) -> uint16
+对数组做一些准备，以更新数组长度

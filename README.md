@@ -518,6 +518,55 @@ oracle实际记录tick的时间累积值
 
 ##### write(self, index, blockTimestamp, tick, liquidity, cardinality, cardinalityNext) -> (indexUpdated, cardinalityUpdated)
 进行一些前置判断和运算，之后调用transform, 对observation数组中的一个observation进行更新
+```solidity
+indexUpdated = (index + 1) % cardinalityUpdated;
+```
+数组可用大小写满之后，会从0开始写入
 
 ##### grow(self, current, next) -> uint16
 对数组做一些准备，以更新数组长度
+
+假设我们TWAP的时间窗口为1h，
+   eth mainnet主网出块时间为12s，一个小时可以出300个块，也就是说我们需要扩容的容量最大也不过300个
+   blast mainnet主网出块时间为2s，一个小时可以出1800个块，这时就需要有选择性地选取时间戳了
+
+计算加权平均的tick公式为：
+averageTick = (tickCumulative[1] - tickCumulative[0]) / (time1 - time0)
+得到averageTick之后，通过getSqrtRatioAtTick()将其转化为sqrtPriceX96.
+需要注意的是，这里的价格并不是真实的TWAP，因为我们为了便于存储和计算，选择存储离散的tick的TWAP，而连续的price和离散的tick是有一些差距的。不过因为每个tick所对应的价格只差 0.01%， 所以我们将其忽略不计
+下面是计算最近一小时的TWAP的代码
+```solidity
+function getSqrtTWAP(address poolAddress) external view returns (uint160 sqrtPriceX96) {
+   IUniswapV3Pool pool = IUniswapV3Pool(poolAddress);
+   uint32[] memory secondsAgos = new uint32[](2);
+   secondsAgos[0] = 3600;
+   secondsAgos[1] = 0;
+   (int56[] memory tickCumulatives, ) = pool.observe(secondsAgos);
+   int56 averageTick = (tickCumulatives[1] - tickCumulatives[0]) / 3600;
+   sqrtPriceX96 = TickMath.getSqrtRatioAtTick(averageTick);
+}
+```
+这个代码大部分情况是可行的，但是有一种情况不可行，那就是碰到池子还没有初始化1h，
+这个时候我们就需要对代码进行优化，将计算TWAP的开始时间设置为observations数组中离当前时间最久的那个observation。
+当前的索引为index，精确的下一个索引值应该为(index+1) % cardinality
+对代码进行优化：
+```solidity
+function getSqrtTWAP(address poolAddress, uint32 twapInterval) external view returns (uint160 sqrtPriceX96) {
+   IUniswapV3Pool pool = IUniswapV3Pool(poolAddress);
+   (,,uint16 index, uint16 cardinality,,,) = pool.slot0();
+   (uint32 targetElementTime,,, bool initialized) = pool.observations((index+1)%cardinality);
+   // 如果下一个元素没有被初始化，将其改为第一个元素
+   if(!initialized) (targetElementTime,,,) = pool.observations(0);
+   uint32 delta = uint32(block.timestamp) - targetElementTime;
+   if(delta == 0) (sqrtPriceX96,,,,,,) = pool.slot0();
+   else {
+      // 如果这个最大的时间间隔小于我们的设定，采用它
+      if(delta < twapInterval) twapInterval = delta;
+      uint32[] memory secondsAgos = new uint32[](2);
+      secondsAgos[0] = twapInterval;;
+      secondsAgos[1] = 0;
+      (int56 memory tickCumulatives,) = pool.observe(secondsAgos);
+      sqrtPriceX96 = TickMath.getSqrtPriceRatioAtTick(int24(tickCumulatives[1] - tickCumulatives[0] / int56(uint56(twapInterval))));
+   }
+}
+```
